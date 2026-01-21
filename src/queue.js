@@ -1,26 +1,14 @@
 import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 
-// Initialize Redis connection
-const redisConnection = new Redis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
-  password: process.env.REDIS_PASSWORD || undefined,
+// Connect to Redis using your connection string
+const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
   maxRetriesPerRequest: null,
   enableReadyCheck: false
 });
 
-redisConnection.on('connect', () => {
-  console.log('Redis connected successfully');
-});
-
-redisConnection.on('error', (err) => {
-  console.error('Redis connection error:', err);
-});
-
-// Initialize BullMQ Queue
-const emailQueue = new Queue('email-queue', {
-  connection: redisConnection,
+export const emailQueue = new Queue('email-queue', {
+  connection,
   defaultJobOptions: {
     attempts: 3,
     backoff: {
@@ -30,11 +18,8 @@ const emailQueue = new Queue('email-queue', {
     removeOnComplete: {
       count: 100,
       age: 24 * 3600
-    },
-    removeOnFail: {
-      count: 500
     }
   }
 });
 
-export { redisConnection, emailQueue };
+console.log('✅ Email queue connected to Redis');

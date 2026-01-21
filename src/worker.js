@@ -1,41 +1,27 @@
 import 'dotenv/config';
 import { Worker } from 'bullmq';
+import Redis from 'ioredis';
 import nodemailer from 'nodemailer';
-import { redisConnection, emailQueue } from './queue.js';
 import { EmailLog } from './models.js';
 
-// Minimum delay between emails (2 seconds)
 const MIN_DELAY_BETWEEN_EMAILS = 2;
 
-// Create Nodemailer transporter (Ethereal SMTP for testing)
-let transporter;
+// Connect to Redis - same as queue.js
+const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+  maxRetriesPerRequest: null,
+  enableReadyCheck: false
+});
 
-const createTransporter = async () => {
-  if (transporter) return transporter;
-  
-  try {
-    const testAccount = await nodemailer.createTestAccount();
-    
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || testAccount.smtp.host,
-      port: process.env.SMTP_PORT || testAccount.smtp.port,
-      secure: process.env.SMTP_SECURE === 'true' || testAccount.smtp.secure,
-      auth: {
-        user: process.env.SMTP_USER || testAccount.user,
-        pass: process.env.SMTP_PASS || testAccount.pass
-      }
-    });
-    
-    console.log('✅ Nodemailer transporter created successfully');
-    console.log('📧 Ethereal Email URL: https://ethereal.email');
-    console.log('👤 User:', testAccount.user);
-    
-    return transporter;
-  } catch (error) {
-    console.error('Error creating transporter:', error);
-    throw error;
+// Create transporter for sending emails
+const transporter = nodemailer.createTransport({
+  host: 'smtp.ethereal.email',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER || 'your-ethereal-user',
+    pass: process.env.EMAIL_PASS || 'your-ethereal-pass'
   }
-};
+});
 
 // Check rate limit with user-defined hourly limit
 const checkRateLimit = async (senderId, hourlyLimit) => {
@@ -201,11 +187,11 @@ const worker = new Worker(
     }
   },
   {
-    connection: redisConnection,
-    concurrency: 3,  // Process up to 3 emails in parallel
+    connection, // Use the Redis connection
+    concurrency: 3,
     limiter: {
-      max: 10,       // But no more than 10 jobs
-      duration: 10000 // per 10 seconds (system-wide throttle)
+      max: 5,
+      duration: 10000
     }
   }
 );
