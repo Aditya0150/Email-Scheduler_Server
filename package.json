@@ -1,0 +1,32 @@
+{
+  "name": "assesmentadi",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "worker": "node src/worker.js",
+    "dev": "nodemon src/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "bullmq": "^5.4.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "google-auth-library": "^9.15.1",
+    "ioredis": "^5.3.2",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.9.1",
+    "nodemailer": "^6.9.9",
+    "sequelize": "^6.37.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
