@@ -3,6 +3,7 @@ import { Worker } from 'bullmq';
 import Redis from 'ioredis';
 import nodemailer from 'nodemailer';
 import { EmailLog } from './models.js';
+import { emailQueue } from './queue.js';
 
 const MIN_DELAY_BETWEEN_EMAILS = 2;
 
@@ -13,15 +14,52 @@ const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', 
 });
 
 // Create transporter for sending emails
-const transporter = nodemailer.createTransport({
-  host: 'smtp.ethereal.email',
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER || 'your-ethereal-user',
-    pass: process.env.EMAIL_PASS || 'your-ethereal-pass'
+let transporter;
+
+const createTransporter = async () => {
+  if (transporter) return transporter;
+
+  // If EMAIL_USER and EMAIL_PASS are not set, create a test account
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || 
+      process.env.EMAIL_USER === 'your-ethereal-user' ||
+      process.env.EMAIL_USER === 'your-email@gmail.com') {
+    console.log('📧 Creating Ethereal test email account...');
+    const testAccount = await nodemailer.createTestAccount();
+    
+    console.log('✅ Ethereal test account created:');
+    console.log(`   User: ${testAccount.user}`);
+    console.log(`   Pass: ${testAccount.pass}`);
+    console.log('   💡 Add these to your .env file:\n');
+    console.log(`   EMAIL_USER=${testAccount.user}`);
+    console.log(`   EMAIL_PASS=${testAccount.pass}\n`);
+    
+    transporter = nodemailer.createTransport({
+      host: 'smtp.ethereal.email',
+      port: 587,
+      secure: false,
+      auth: {
+        user: testAccount.user,
+        pass: testAccount.pass
+      }
+    });
+  } else {
+    // Use provided credentials
+    transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.ethereal.email',
+      port: parseInt(process.env.EMAIL_PORT) || 587,
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
   }
-});
+
+  return transporter;
+};
+
+// Initialize transporter
+await createTransporter();
 
 // Check rate limit with user-defined hourly limit
 const checkRateLimit = async (senderId, hourlyLimit) => {
@@ -29,7 +67,7 @@ const checkRateLimit = async (senderId, hourlyLimit) => {
   const currentHour = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}-${now.getHours()}`;
   const rateLimitKey = `rate-limit:${senderId}:${currentHour}`;
   
-  const currentCount = await redisConnection.get(rateLimitKey);
+  const currentCount = await connection.get(rateLimitKey);
   const count = currentCount ? parseInt(currentCount) : 0;
   
   return {
@@ -43,9 +81,9 @@ const checkRateLimit = async (senderId, hourlyLimit) => {
 
 // Increment rate limit counter
 const incrementRateLimit = async (rateLimitKey) => {
-  const count = await redisConnection.incr(rateLimitKey);
+  const count = await connection.incr(rateLimitKey);
   if (count === 1) {
-    await redisConnection.expire(rateLimitKey, 3600);
+    await connection.expire(rateLimitKey, 3600);
   }
   return count;
 };
@@ -63,9 +101,7 @@ const getDelayToNextHour = () => {
 
 // Send email function
 const sendEmail = async (recipient, subject, body) => {
-  const transport = await createTransporter();
-  
-  const info = await transport.sendMail({
+  const info = await transporter.sendMail({
     from: process.env.SMTP_FROM || '"Email Scheduler" <scheduler@example.com>',
     to: recipient,
     subject: subject,
@@ -91,7 +127,7 @@ const worker = new Worker(
       body, 
       senderId,
       delayBetweenEmails = MIN_DELAY_BETWEEN_EMAILS,
-      hourlyLimit
+      hourlyLimit = 10 // Default to 10 if not provided
     } = job.data;
     
     // Ensure minimum delay
@@ -218,15 +254,16 @@ console.log('⚙️  User-defined delays enabled\n');
 process.on('SIGTERM', async () => {
   console.log('\n🛑 SIGTERM received, closing worker...');
   await worker.close();
-  await redisConnection.quit();
+  await connection.quit();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('\n🛑 SIGINT received, closing worker...');
   await worker.close();
-  await redisConnection.quit();
+  await connection.quit();
   process.exit(0);
 });
 
 export default worker;
+
